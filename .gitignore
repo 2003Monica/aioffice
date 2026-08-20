@@ -20,9 +20,6 @@ dist-ssr
 .wrangler/
 .dev.vars
 
-CLAUDE.md
-
-
 # Environment files (real secrets -- keep .env.example checked in instead)
 .env
 .env.local
