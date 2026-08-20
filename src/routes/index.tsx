@@ -106,7 +106,7 @@ function OfficePage() {
       setTimeout(() => {
         setVisible(false);
         walking.current = false;
-        officeApi.clearAssistant();
+        void officeApi.clearAssistant();
       }, STEP_MS),
     );
   }, []);

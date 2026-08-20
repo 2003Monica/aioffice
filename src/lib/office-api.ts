@@ -8,6 +8,7 @@
  *   POST /task                     { task }            -> StatusResponse
  *   GET  /status                                       -> StatusResponse
  *   POST /desk/{desk_id}/provider  { provider }        -> StatusResponse
+ *   POST /assistant/clear                              -> StatusResponse
  */
 
 export type DeskStatus = "idle" | "working" | "done";
@@ -41,12 +42,12 @@ export const DESK_META: {
   color: string;
   keywords: string[];
 }[] = [
-  { id: "backend", name: "BACKEND", color: "var(--desk-backend)", keywords: ["api", "server", "backend", "endpoint"] },
-  { id: "research", name: "RESEARCH", color: "var(--desk-research)", keywords: ["research", "compare", "find", "study"] },
-  { id: "frontend", name: "FRONTEND", color: "var(--desk-frontend)", keywords: ["ui", "frontend", "page", "design"] },
-  { id: "devops", name: "DEVOPS", color: "var(--desk-devops)", keywords: ["deploy", "ci", "docker", "devops"] },
-  { id: "security", name: "SECURITY", color: "var(--desk-security)", keywords: ["auth", "security", "secret", "audit"] },
-  { id: "sql", name: "SQL / DATABASE", color: "var(--desk-sql)", keywords: ["sql", "database", "table", "query", "schema"] },
+  { id: "backend", name: "BACKEND", color: "var(--desk-backend)", keywords: ["api", "endpoint", "server", "logic", "backend", "auth", "authentication", "login", "session", "password"] },
+  { id: "research", name: "RESEARCH", color: "var(--desk-research)", keywords: ["research", "compare", "evaluate", "investigate", "explore", "analyze", "best practice"] },
+  { id: "frontend", name: "FRONTEND", color: "var(--desk-frontend)", keywords: ["ui", "css", "component", "react", "frontend", "layout", "style", "navbar", "button", "page"] },
+  { id: "devops", name: "DEVOPS", color: "var(--desk-devops)", keywords: ["deploy", "ci/cd", "pipeline", "docker", "infra", "infrastructure", "build", "release"] },
+  { id: "security", name: "SECURITY", color: "var(--desk-security)", keywords: ["security", "vulnerability", "exploit", "encrypt", "permissions", "auth", "login", "password", "secure"] },
+  { id: "sql", name: "SQL / DATABASE", color: "var(--desk-sql)", keywords: ["database", "schema", "sql", "query", "table", "migration", "model", "orm"] },
 ];
 
 const BASE_URL = import.meta.env["VITE_OFFICE_API_URL"] as string | undefined;
@@ -71,11 +72,27 @@ const mockDesks: MockDesk[] = DESK_META.map((d) => ({
 
 let mockAssistant: Assistant = { state: "idle", route: [] };
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Whole-word(ish) keyword match: `\b` anchors on both ends so a short
+ * keyword like "ui" or "orm" can't fire on a fragment buried inside an
+ * unrelated word (e.g. "orm" inside "performance", "api" inside "rapid",
+ * "ui" inside "build"/"guide"). Multi-word keywords like "best practice"
+ * or "ci/cd" work too since `\b` only needs to anchor on their outer,
+ * alphanumeric edges.
+ */
+function keywordMatches(text: string, keyword: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(keyword)}\\b`).test(text);
+}
+
 function pickDesks(task: string): MockDesk[] {
   const t = task.toLowerCase();
   const matched = mockDesks.filter((d) => {
     const meta = DESK_META.find((m) => m.id === d.id)!;
-    return meta.keywords.some((k) => t.includes(k));
+    return meta.keywords.some((k) => keywordMatches(t, k));
   });
   if (matched.length) return matched.slice(0, 3);
   // fall back to two pseudo-random desks so every order dispatches someone
@@ -167,7 +184,11 @@ export const officeApi = {
   },
 
   /** Called by the UI once the assistant has finished its walk-back animation. */
-  clearAssistant() {
-    if (!BASE_URL) mockAssistant = { state: "idle", route: [] };
+  async clearAssistant(): Promise<StatusResponse> {
+    if (!BASE_URL) {
+      mockAssistant = { state: "idle", route: [] };
+      return mockSnapshot();
+    }
+    return request<StatusResponse>("/assistant/clear", { method: "POST" });
   },
 };
