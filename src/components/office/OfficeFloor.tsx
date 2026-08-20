@@ -13,6 +13,21 @@ import {
   type Vec,
 } from "@/lib/office-scene";
 
+// The rotateZ(-45deg) + rotateX(56deg) pair in the "iso-scene" utility
+// (styles.css) projects any flat rectangle into a diamond with a fixed
+// ~1.79:1 width:height ratio -- that ratio comes entirely from the two
+// rotation angles, not from WORLD's x:y proportions (scaling WORLD's axes
+// independently doesn't change it), so a wider room always reads as a
+// long, thin sliver. Applying an extra X-only scale after the rotation is
+// the only way to make the room look more compact/square without changing
+// the rotation angles (which would also change how upright characters and
+// desk labels look, since their Billboard counter-rotation assumes them).
+// Chosen so the rendered diamond's aspect ratio (~1.79:1 uncorrected) lands
+// close to WORLD's own 15:11 (~1.36:1) tile-grid ratio, so the room reads
+// as proportioned to its actual footprint instead of an arbitrary artifact
+// of the 45deg/56deg rotation.
+const X_COMPRESS = 0.76;
+
 export function OfficeFloor({
   agents,
   assistant,
@@ -37,22 +52,36 @@ export function OfficeFloor({
       if (w === 0 || h === 0) return;
 
       setScale((prevScale) => {
-        // getBoundingClientRect() reports the scene's *currently rendered*
-        // (already-scaled) box, since it reflects the live rotateX/rotateZ
-        // 3D transform plus every ancestor transform -- dividing out the
-        // scale we last applied recovers its true projected size. This
-        // replaces a fixed-constant approximation of that size (which
-        // didn't match the real rendered box and deliberately overshot the
-        // container assuming overflow:hidden would crop the excess -- it
-        // doesn't reliably clip a preserve-3d subtree, so the excess
-        // leaked past the container's edges instead).
-        const rect = sceneEl.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return prevScale;
-        const naturalW = rect.width / prevScale;
-        const naturalH = rect.height / prevScale;
-        const fit = Math.min(w / naturalW, h / naturalH);
+        // .iso-scene's own getBoundingClientRect() only covers its nominal
+        // WORLD.x*TILE x WORLD.y*TILE box -- it does NOT include descendants
+        // that paint outside that box (extruded wall/prop heights after the
+        // rotateX tilt, and a few props placed at out-of-range tile
+        // coordinates), so it undercounts the true rendered extent. Measure
+        // the union of every descendant's rect instead -- the only way to
+        // get the real painted bounds of a preserve-3d subtree with
+        // absolutely-positioned children. Dividing out the scale/X_COMPRESS
+        // we last applied recovers the true *unscaled* bounds so this stays
+        // correct across resizes regardless of the previous scale value.
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const el of sceneEl.parentElement!.querySelectorAll("*")) {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 && r.height === 0) continue;
+          if (r.left < minX) minX = r.left;
+          if (r.top < minY) minY = r.top;
+          if (r.right > maxX) maxX = r.right;
+          if (r.bottom > maxY) maxY = r.bottom;
+        }
+        if (!isFinite(minX)) return prevScale;
+
+        const naturalW = (maxX - minX) / (prevScale * X_COMPRESS);
+        const naturalH = (maxY - minY) / prevScale;
+        if (naturalW === 0 || naturalH === 0) return prevScale;
+        const fit = Math.min(w / (naturalW * X_COMPRESS), h / naturalH);
         // small safety margin so sub-pixel rounding never clips an edge
-        return Math.min(fit * 0.98, 2.2);
+        return Math.min(fit * 0.96, 2.2);
       });
     });
     ro.observe(wrapEl);
@@ -71,7 +100,10 @@ export function OfficeFloor({
     >
       <div
         className="absolute left-1/2 top-1/2"
-        style={{ transform: `translate(-50%,-50%) scale(${scale})`, transformOrigin: "center" }}
+        style={{
+          transform: `translate(-50%,-50%) scale(${scale * X_COMPRESS}, ${scale})`,
+          transformOrigin: "center",
+        }}
       >
         <div
           ref={scene}

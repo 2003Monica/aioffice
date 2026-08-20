@@ -71,7 +71,7 @@ export function ChatPanel({
         {chat.map((c) => (
           <div key={c.id} className="space-y-1">
             <div
-              className="ml-auto w-fit max-w-[92%] rounded-sm px-2 py-1 text-[17px] leading-snug"
+              className="ml-auto w-fit max-w-[92%] break-words rounded-sm px-2 py-1 text-[17px] leading-snug"
               style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
             >
               {c.order}

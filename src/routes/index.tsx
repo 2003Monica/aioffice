@@ -52,7 +52,7 @@ function OfficePage() {
 
   return (
     <main className="flex h-screen flex-col gap-2 overflow-hidden p-2 lg:flex-row lg:p-3">
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
         <header className="flex shrink-0 items-center justify-between gap-3">
           <div className="flex items-baseline gap-3">
             <h1 className="pixel-font text-[13px] text-primary">AI OFFICE</h1>
