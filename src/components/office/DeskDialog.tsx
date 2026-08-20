@@ -1,5 +1,10 @@
-import { PROVIDERS, type Desk } from "@/lib/office-api";
-import { STATE_COLOR } from "./Desk";
+import { PROVIDERS, type Desk, type DeskStatus } from "@/lib/office-api";
+
+const STATE_COLOR: Record<DeskStatus, string> = {
+  idle: "var(--state-idle)",
+  working: "var(--state-working)",
+  done: "var(--state-done)",
+};
 
 interface Props {
   desk: Desk;

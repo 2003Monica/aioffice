@@ -167,8 +167,10 @@
   --floor: oklch(0.32 0.04 200);
   --floor-alt: oklch(0.29 0.04 200);
   --wall: oklch(0.24 0.05 250);
+  --wall-dark: oklch(0.18 0.04 250);
   --wood: oklch(0.52 0.09 60);
   --wood-dark: oklch(0.4 0.08 55);
+  --wood-light: oklch(0.62 0.08 66);
   --screen: oklch(0.78 0.16 165);
   --terminal-bg: oklch(0.17 0.04 200);
   --terminal-text: oklch(0.85 0.16 150);
@@ -185,14 +187,18 @@
   --state-done: oklch(0.72 0.18 145);
 
   --font-pixel: "Press Start 2P", ui-monospace, monospace;
+  --font-mono: "VT323", ui-monospace, monospace;
 }
 
 @theme inline {
   --font-pixel: var(--font-pixel);
+  --font-mono: var(--font-mono);
   --color-floor: var(--floor);
   --color-wall: var(--wall);
+  --color-wall-dark: var(--wall-dark);
   --color-wood: var(--wood);
   --color-wood-dark: var(--wood-dark);
+  --color-wood-light: var(--wood-light);
   --color-screen: var(--screen);
   --color-panel-border: var(--panel-border);
   --color-panel-inner: var(--panel-inner);
@@ -217,12 +223,6 @@ body {
     0 0 0 4px var(--panel-inner),
     0 0 0 8px var(--panel-border),
     8px 8px 0 0 oklch(0 0 0 / 35%);
-}
-
-@utility pixel-box {
-  background: var(--card);
-  border: 4px solid var(--panel-border);
-  box-shadow: 4px 4px 0 0 oklch(0 0 0 / 40%);
 }
 
 @utility pixel-btn {
@@ -260,15 +260,6 @@ body {
   }
 }
 
-@utility floor-tiles {
-  background-color: var(--floor);
-  background-image:
-    linear-gradient(45deg, var(--floor-alt) 25%, transparent 25%, transparent 75%, var(--floor-alt) 75%),
-    linear-gradient(45deg, var(--floor-alt) 25%, transparent 25%, transparent 75%, var(--floor-alt) 75%);
-  background-size: 48px 48px;
-  background-position: 0 0, 24px 24px;
-}
-
 @utility scanlines {
   &::after {
     content: "";
@@ -285,17 +276,89 @@ body {
   }
 }
 
-@keyframes pixel-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
+/* ------------------------- isometric office scene ------------------------ */
+
+@utility pixel-border {
+  border: 2px solid var(--panel-border);
+  box-shadow:
+    0 0 0 2px oklch(0.15 0.03 200),
+    4px 4px 0 0 oklch(0.15 0.03 200 / 60%);
 }
-@utility bob {
-  animation: pixel-bob 0.9s steps(2, end) infinite;
+
+@utility iso-scene {
+  transform-style: preserve-3d;
+  transform: rotateX(56deg) rotateZ(-45deg);
 }
-@keyframes pixel-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+
+@utility billboard {
+  transform: rotateZ(45deg) rotateX(-56deg);
+  transform-origin: bottom center;
 }
-@utility blink {
-  animation: pixel-blink 1s steps(2, end) infinite;
+
+@utility crt-lines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    oklch(0 0 0 / 22%) 2px 3px
+  );
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@utility anim-bob {
+  animation: bob 0.45s steps(2, end) infinite;
+}
+
+@keyframes idle-breathe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.97);
+  }
+}
+@utility anim-breathe {
+  animation: idle-breathe 2.4s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+
+@keyframes blink-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@utility caret {
+  animation: blink-caret 1s steps(1) infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 0.9;
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+    opacity: 0;
+  }
+}
+@utility anim-ping-ring {
+  animation: pulse-ring 1.4s ease-out infinite;
+}
+
+@utility scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-border) transparent;
 }
