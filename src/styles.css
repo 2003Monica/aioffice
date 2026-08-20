@@ -176,7 +176,7 @@
   --desk-backend: oklch(0.65 0.19 25);
   --desk-research: oklch(0.78 0.16 95);
   --desk-frontend: oklch(0.68 0.15 195);
-  --desk-devops: oklch(0.66 0.16 145);
+  --desk-debugger: oklch(0.66 0.16 145);
   --desk-security: oklch(0.65 0.19 330);
   --desk-sql: oklch(0.7 0.15 265);
 

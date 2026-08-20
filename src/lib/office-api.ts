@@ -45,7 +45,7 @@ export const DESK_META: {
   { id: "backend", name: "BACKEND", color: "var(--desk-backend)", keywords: ["api", "endpoint", "server", "logic", "backend", "auth", "authentication", "login", "session", "password"] },
   { id: "research", name: "RESEARCH", color: "var(--desk-research)", keywords: ["research", "compare", "evaluate", "investigate", "explore", "analyze", "best practice"] },
   { id: "frontend", name: "FRONTEND", color: "var(--desk-frontend)", keywords: ["ui", "css", "component", "react", "frontend", "layout", "style", "navbar", "button", "page"] },
-  { id: "devops", name: "DEVOPS", color: "var(--desk-devops)", keywords: ["deploy", "ci/cd", "pipeline", "docker", "infra", "infrastructure", "build", "release"] },
+  { id: "debugger", name: "DEBUGGER", color: "var(--desk-debugger)", keywords: ["debug", "bug", "error", "exception", "stack trace", "traceback", "crash", "fix", "troubleshoot", "root cause", "reproduce", "breakpoint", "null pointer", "undefined", "segfault"] },
   { id: "security", name: "SECURITY", color: "var(--desk-security)", keywords: ["security", "vulnerability", "exploit", "encrypt", "permissions", "auth", "login", "password", "secure"] },
   { id: "sql", name: "SQL / DATABASE", color: "var(--desk-sql)", keywords: ["database", "schema", "sql", "query", "table", "migration", "model", "orm"] },
 ];
