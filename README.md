@@ -23,6 +23,9 @@ npm run dev
 
 ## Built with
 
+For the optional FastAPI backend, local Ollama setup, and live desk verification,
+see [backend/README.md](backend/README.md).
+
 - TanStack Start
 - TypeScript
 - React

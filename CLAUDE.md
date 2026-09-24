@@ -20,7 +20,7 @@ character walks between desks to dispatch and collect task results.
 
 ## Current state
 
-Three desks make real streaming calls to a hosted LLM; each independently
+Three desks stream from hosted LLMs and three call local Ollama; each independently
 falls back to the same simulated staged output if its API call fails
 (missing/bad key, rate limit, network error), so a desk always completes
 and one provider being down never affects the others. See
@@ -36,16 +36,17 @@ and one provider being down never affects the others. See
   `reasoning_effort="high"`, same Groq endpoint) — larger model for
   root-causing crashes/stack traces. Also requires `GROQ_API_KEY` (same key
   as Research).
-- **Frontend, Security, SQL/Database** return **artifacts only** (simulated
-  staged output lines) — there is no live command execution or real model
-  call for them yet.
+- **Frontend, Security, SQL/Database** use local Ollama `gpt-oss:20b` through
+  a shared async HTTP helper with separate specialist system prompts.
+  `OLLAMA_BASE_URL` defaults to `http://localhost:11434`; `OLLAMA_MODEL`
+  defaults to `gpt-oss:20b`. Each request has a 300-second overall timeout
+  and falls back to simulated output on failure. All agents generate text
+  only; none execute commands, edit files, scan systems or run SQL.
 
 Both keys (`NVIDIA_API_KEY`, `GROQ_API_KEY`) go in `backend/.env` (copy
 `backend/.env.example`, which is checked in as a template; `.env` itself is
 gitignored and never committed).
 
-Wiring real providers into the remaining three desks is a **future step**.
-`backend/agents.py` is structured so a provider handler can be swapped in
-later (either branch on `desk_id` the way the three live desks do, or
-register one in `PROVIDER_HANDLERS`) without changing the endpoint contract
-in `backend/main.py`.
+All six desks now have dedicated handlers in `backend/agents.py`.
+The generic provider selector does not override these desk-specific handlers.
+See `backend/README.md` for local setup, live-response checks and offline tests.

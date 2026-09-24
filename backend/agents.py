@@ -2,8 +2,8 @@
 Per-desk agent runner.
 
 `run_agent` yields output lines one at a time as an agent works a task.
-Three desks (frontend, security, sql) are still fully simulated placeholders
-via `_simulated`. Three desks make real streaming calls to a hosted LLM,
+Frontend, security and sql call local Ollama through a shared async client.
+Three desks make real streaming calls to a hosted LLM,
 each falling back to the same simulated staged output if its API call fails
 for any reason, so a desk always completes instead of hanging or crashing,
 and one provider being down never affects the others:
@@ -24,11 +24,15 @@ change either way.
 """
 
 import asyncio
+import logging
 import os
 import random
 from collections.abc import AsyncIterator, Callable
 
 from openai import OpenAI
+import httpx
+
+logger = logging.getLogger(__name__)
 
 NEMOTRON_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 NEMOTRON_BASE_URL = "https://integrate.api.nvidia.com/v1"
@@ -257,9 +261,113 @@ async def _run_debugger_groq(desk_id: str, provider: str, task: str) -> AsyncIte
         yield line
 
 
-# Map a provider name (must match PROVIDERS in office-api.ts) to a handler
-# for the still-simulated desks. Unlisted providers fall back to the
-# simulation.
+# --------------------------- local Ollama ------------------------------- #
+
+OLLAMA_TIMEOUT_SECONDS = 300.0
+
+
+async def generate_ollama(task: str, system_prompt: str) -> str:
+    """Generate text locally without blocking the FastAPI event loop."""
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    model = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
+    # Bound both individual HTTP operations and the complete request.
+    async with asyncio.timeout(OLLAMA_TIMEOUT_SECONDS):
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(OLLAMA_TIMEOUT_SECONDS, connect=10.0),
+            trust_env=False,
+        ) as client:
+            response = await client.post(
+                f"{base_url}/api/generate",
+                json={"model": model, "prompt": task, "system": system_prompt, "stream": False},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or "error" in payload:
+                raise ValueError("invalid Ollama response")
+            generated = payload.get("response")
+            if not isinstance(generated, str) or not generated.strip():
+                raise ValueError("missing or empty Ollama response text")
+            return generated
+
+
+async def _run_ollama(
+    desk_id: str, provider: str, task: str, *, system_prompt: str
+) -> AsyncIterator[str]:
+    yield f"> booting {desk_id} agent [Ollama]"
+    yield "> connecting to local Ollama; waiting for generated text ..."
+    try:
+        generated = await generate_ollama(task, system_prompt)
+    except Exception as exc:
+        # Never log exception text, URLs, response bodies, or prompts: these
+        # can contain credentials or user data. Categories/status are enough
+        # to distinguish an offline service, timeout, missing model or bad JSON.
+        if isinstance(exc, httpx.HTTPStatusError):
+            reason = f"HTTP {exc.response.status_code}; check Ollama and model availability"
+        elif isinstance(exc, (httpx.TimeoutException, TimeoutError)):
+            reason = "request timed out"
+        elif isinstance(exc, httpx.ConnectError):
+            reason = "connection failed; check OLLAMA_BASE_URL and that Ollama is running"
+        elif isinstance(exc, ValueError):
+            reason = "malformed response or invalid configuration"
+        else:
+            reason = type(exc).__name__
+        logger.warning("Ollama desk=%s failed (%s); using simulated output", desk_id, reason)
+        yield f"> Ollama error ({reason}) - falling back to simulated output"
+        async for line in _simulated(desk_id, provider, task):
+            yield line
+        return
+
+    yield "> Ollama response received (live local generation):"
+    yield generated
+    yield "> task complete."
+
+
+async def _run_frontend_ollama(desk_id: str, provider: str, task: str) -> AsyncIterator[str]:
+    async for line in _run_ollama(
+        desk_id, provider, task,
+        system_prompt=(
+            "You are the Frontend Engineer for AI Office. Specialize in React, TypeScript, "
+            "TanStack Start/Router, Tailwind CSS, shadcn/Radix, UI/UX, component architecture, "
+            "accessibility and frontend debugging. Answer only from the frontend specialist's "
+            "perspective. Generate text and suggested code only. You cannot execute commands, "
+            "edit files or modify repositories; never claim you performed those actions."
+        ),
+    ):
+        yield line
+
+
+async def _run_security_ollama(desk_id: str, provider: str, task: str) -> AsyncIterator[str]:
+    async for line in _run_ollama(
+        desk_id, provider, task,
+        system_prompt=(
+            "You are the Security Engineer for AI Office. Specialize in application security, "
+            "API security, authentication, authorization, secrets management, dependency risks, "
+            "OWASP issues, secure coding and threat analysis. Identify risks and suggest safe "
+            "fixes from the security specialist's perspective. Generate text only. You cannot "
+            "execute commands, scan systems, edit files or modify repositories. Never pretend "
+            "you actually executed security scans; distinguish analysis from verified findings."
+        ),
+    ):
+        yield line
+
+
+async def _run_sql_ollama(desk_id: str, provider: str, task: str) -> AsyncIterator[str]:
+    async for line in _run_ollama(
+        desk_id, provider, task,
+        system_prompt=(
+            "You are the Database Engineer for AI Office. Specialize in SQL, schema design, "
+            "PostgreSQL, database architecture, indexes, query optimization, migrations, data "
+            "modelling and persistence. Answer from the database specialist's perspective. "
+            "Generate text and suggested SQL only. You cannot execute SQL or commands, edit "
+            "files or modify repositories. Clearly label SQL as suggested and not executed; "
+            "never claim database changes or query results you have not actually observed."
+        ),
+    ):
+        yield line
+
+
+# Optional provider handlers for desks without a dedicated handler.
+# Unlisted providers fall back to simulation.
 PROVIDER_HANDLERS: dict[str, Callable[[str, str, str], AsyncIterator[str]]] = {}
 
 # desk_id -> real-call handler, checked before PROVIDER_HANDLERS.
@@ -267,6 +375,9 @@ DESK_HANDLERS: dict[str, Callable[[str, str, str], AsyncIterator[str]]] = {
     "backend": _run_backend_nemotron,
     "research": _run_research_groq,
     "debugger": _run_debugger_groq,
+    "frontend": _run_frontend_ollama,
+    "security": _run_security_ollama,
+    "sql": _run_sql_ollama,
 }
 
 
