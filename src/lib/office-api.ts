@@ -21,6 +21,20 @@ export interface Desk {
   current_task: string | null;
   output: string[];
   provider: string;
+  answered_by?: string | null;
+  model?: string | null;
+}
+
+export interface MeetingMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface MeetingResponse {
+  desk: string;
+  response: string;
+  provider: "nvidia" | "groq" | "ollama" | "simulated";
+  model: string | null;
 }
 
 export interface Assistant {
@@ -42,12 +56,98 @@ export const DESK_META: {
   color: string;
   keywords: string[];
 }[] = [
-  { id: "backend", name: "BACKEND", color: "var(--desk-backend)", keywords: ["api", "endpoint", "server", "logic", "backend", "auth", "authentication", "login", "session", "password"] },
-  { id: "research", name: "RESEARCH", color: "var(--desk-research)", keywords: ["research", "compare", "evaluate", "investigate", "explore", "analyze", "best practice"] },
-  { id: "frontend", name: "FRONTEND", color: "var(--desk-frontend)", keywords: ["ui", "css", "component", "react", "frontend", "layout", "style", "navbar", "button", "page"] },
-  { id: "debugger", name: "DEBUGGER", color: "var(--desk-debugger)", keywords: ["debug", "bug", "error", "exception", "stack trace", "traceback", "crash", "fix", "troubleshoot", "root cause", "reproduce", "breakpoint", "null pointer", "undefined", "segfault"] },
-  { id: "security", name: "SECURITY", color: "var(--desk-security)", keywords: ["security", "vulnerability", "exploit", "encrypt", "permissions", "auth", "login", "password", "secure"] },
-  { id: "sql", name: "SQL / DATABASE", color: "var(--desk-sql)", keywords: ["database", "schema", "sql", "query", "table", "migration", "model", "orm"] },
+  {
+    id: "backend",
+    name: "BACKEND",
+    color: "var(--desk-backend)",
+    keywords: [
+      "api",
+      "endpoint",
+      "server",
+      "logic",
+      "backend",
+      "auth",
+      "authentication",
+      "login",
+      "session",
+      "password",
+    ],
+  },
+  {
+    id: "research",
+    name: "RESEARCH",
+    color: "var(--desk-research)",
+    keywords: [
+      "research",
+      "compare",
+      "evaluate",
+      "investigate",
+      "explore",
+      "analyze",
+      "best practice",
+    ],
+  },
+  {
+    id: "frontend",
+    name: "FRONTEND",
+    color: "var(--desk-frontend)",
+    keywords: [
+      "ui",
+      "css",
+      "component",
+      "react",
+      "frontend",
+      "layout",
+      "style",
+      "navbar",
+      "button",
+      "page",
+    ],
+  },
+  {
+    id: "debugger",
+    name: "DEBUGGER",
+    color: "var(--desk-debugger)",
+    keywords: [
+      "debug",
+      "bug",
+      "error",
+      "exception",
+      "stack trace",
+      "traceback",
+      "crash",
+      "fix",
+      "troubleshoot",
+      "root cause",
+      "reproduce",
+      "breakpoint",
+      "null pointer",
+      "undefined",
+      "segfault",
+    ],
+  },
+  {
+    id: "security",
+    name: "SECURITY",
+    color: "var(--desk-security)",
+    keywords: [
+      "security",
+      "vulnerability",
+      "exploit",
+      "encrypt",
+      "permissions",
+      "auth",
+      "login",
+      "password",
+      "secure",
+    ],
+  },
+  {
+    id: "sql",
+    name: "SQL / DATABASE",
+    color: "var(--desk-sql)",
+    keywords: ["database", "schema", "sql", "query", "table", "migration", "model", "orm"],
+  },
 ];
 
 const BASE_URL = import.meta.env["VITE_OFFICE_API_URL"] as string | undefined;
@@ -105,7 +205,10 @@ function tickMock() {
   for (const d of mockDesks) {
     if (d.status !== "working") continue;
     const total = d.lines.length;
-    const revealed = Math.min(total, Math.max(1, Math.ceil(total * (1 - (d.finishAt - now) / 9000))));
+    const revealed = Math.min(
+      total,
+      Math.max(1, Math.ceil(total * (1 - (d.finishAt - now) / 9000))),
+    );
     d.output = d.lines.slice(0, revealed);
     if (now >= d.finishAt) {
       d.status = "done";
@@ -122,7 +225,10 @@ function tickMock() {
 function mockSnapshot(): StatusResponse {
   tickMock();
   return {
-    desks: mockDesks.map(({ finishAt: _f, lines: _l, ...rest }) => ({ ...rest, output: [...rest.output] })),
+    desks: mockDesks.map(({ finishAt: _f, lines: _l, ...rest }) => ({
+      ...rest,
+      output: [...rest.output],
+    })),
     assistant: { ...mockAssistant, route: [...mockAssistant.route] },
   };
 }
@@ -160,6 +266,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const officeApi = {
   isMock: !BASE_URL,
+
+  async sendPrivateMessage(
+    deskId: string,
+    message: string,
+    history: MeetingMessage[],
+    signal?: AbortSignal,
+  ): Promise<MeetingResponse> {
+    const recent = history.slice(-12).map((m) => ({ ...m, content: m.content.slice(0, 4000) }));
+    if (!BASE_URL) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      if (signal?.aborted) throw new DOMException("Meeting ended", "AbortError");
+      return {
+        desk: deskId,
+        provider: "simulated",
+        model: null,
+        response: `[Demo ${deskId} response] Your message: ${message}${recent.length ? `\nContinuing our conversation about: ${recent[0]!.content}` : ""}\nThis is a simulated conversation; no actions were executed.`,
+      };
+    }
+    return request<MeetingResponse>(`/agents/${deskId}/message`, {
+      method: "POST",
+      body: JSON.stringify({ message, history: recent }),
+      signal: signal ?? null,
+    });
+  },
 
   async getStatus(): Promise<StatusResponse> {
     if (!BASE_URL) return mockSnapshot();

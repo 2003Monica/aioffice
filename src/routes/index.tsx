@@ -7,6 +7,7 @@ import { Minimap } from "@/components/office/Minimap";
 import { TerminalPanel } from "@/components/office/TerminalPanel";
 import { AgentCards } from "@/components/office/AgentCards";
 import { ChatPanel } from "@/components/office/ChatPanel";
+import { PrivateMeetingDialog } from "@/components/office/PrivateMeetingDialog";
 import { DeskDialog } from "@/components/office/DeskDialog";
 import { useOfficeScene } from "@/hooks/useOfficeScene";
 import type { DeskId } from "@/lib/office-scene";
@@ -40,6 +41,8 @@ function OfficePage() {
     terminal,
     dispatch,
     talkPrivately,
+    meetingAgent,
+    endMeeting,
     changeProvider,
     isMock,
   } = useOfficeScene();
@@ -89,6 +92,15 @@ function OfficePage() {
       <div className="w-full shrink-0 lg:h-full lg:w-[340px]">
         <ChatPanel chat={chat} onDispatch={(text) => void dispatch(text)} isMock={isMock} />
       </div>
+
+      {meetingAgent && (
+        <PrivateMeetingDialog
+          key={meetingAgent}
+          agentId={meetingAgent}
+          arriving={agents.find((a) => a.id === meetingAgent)?.status !== "meeting"}
+          onClose={endMeeting}
+        />
+      )}
 
       {selected && (
         <DeskDialog

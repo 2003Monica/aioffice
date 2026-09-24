@@ -87,6 +87,8 @@ function initialWalkers(): Record<DeskId, Walker> {
 }
 
 export function useOfficeScene() {
+  const [meetingAgent, setMeetingAgent] = useState<DeskId | null>(null);
+  const meetingRef = useRef<DeskId | null>(null);
   const walkers = useRef<Record<DeskId, Walker>>(initialWalkers());
   const assistantWalker = useRef<Walker>({
     pos: { ...ASSISTANT_HOME },
@@ -151,6 +153,13 @@ export function useOfficeScene() {
       if (desk.output.length > seen) {
         for (const line of desk.output.slice(seen)) pushTerminal(id, line);
         seenOutputLen.current[id] = desk.output.length;
+      }
+
+      if (meetingRef.current === id) {
+        if (desk.status === "working") busyDesks.current.add(id);
+        else busyDesks.current.delete(id);
+        prevDeskStatus.current[id] = desk.status;
+        continue;
       }
 
       const prev = prevDeskStatus.current[id];
@@ -358,21 +367,33 @@ export function useOfficeScene() {
   const talkPrivately = useCallback(
     (id: DeskId) => {
       const w = walkers.current[id];
-      if (!w || busyDesks.current.has(id) || w.status === "meeting") return;
+      if (!w || busyDesks.current.has(id) || meetingRef.current) return;
+      meetingRef.current = id;
+      setMeetingAgent(id);
       const spot = MEETING_SPOTS[Math.floor(Math.random() * MEETING_SPOTS.length)]!;
       setScript(w, [
         { t: "state", status: "walking", banter: null },
         ...pathTo(w.pos, spot),
         { t: "state", status: "meeting", banter: "…in a meeting" },
-        { t: "wait", ms: 6500 },
-        { t: "state", status: "walking", banter: null },
-        ...pathTo(spot, DESK_VISUALS[id].seat),
-        { t: "state", status: "idle" },
       ]);
       w.nextWander = Date.now() + 25000;
     },
     [setScript],
   );
+
+  const endMeeting = useCallback(() => {
+    const id = meetingRef.current;
+    if (!id) return;
+    meetingRef.current = null;
+    setMeetingAgent(null);
+    const w = walkers.current[id];
+    setScript(w, [
+      { t: "state", status: "walking", banter: null },
+      ...pathTo(w.pos, DESK_VISUALS[id].seat),
+      { t: "state", status: busyDesks.current.has(id) ? "working" : "idle" },
+    ]);
+    w.nextWander = Date.now() + 25000;
+  }, [setScript]);
 
   const changeProvider = useCallback(async (deskId: string, provider: string) => {
     setStatus(await officeApi.setProvider(deskId, provider));
@@ -386,6 +407,8 @@ export function useOfficeScene() {
     terminal,
     dispatch,
     talkPrivately,
+    meetingAgent,
+    endMeeting,
     changeProvider,
     isMock: officeApi.isMock,
   };

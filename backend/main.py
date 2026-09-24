@@ -15,6 +15,7 @@ work streams into desk.output over time.
 import asyncio
 import re
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 
@@ -22,7 +23,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agents import run_agent
 
@@ -54,6 +55,8 @@ class Desk(BaseModel):
     current_task: str | None
     output: list[str]
     provider: str
+    answered_by: str | None = None
+    model: str | None = None
 
 
 class Assistant(BaseModel):
@@ -118,8 +121,11 @@ def pick_desks(task: str) -> list[str]:
 
 async def work_desk(desk_id: str, task: str) -> None:
     desk = desks[desk_id]
-    async for line in run_agent(desk_id, desk.provider, task):
+    result = {}
+    async for line in run_agent(desk_id, desk.provider, task, result=result):
         desk.output.append(line)
+    desk.answered_by = result.get("provider")
+    desk.model = result.get("model")
     desk.status = "done"
 
     if assistant.state == "dispatching" and all(desks[d].status == "done" for d in assistant.route):
@@ -139,6 +145,8 @@ async def post_task(body: TaskRequest) -> StatusResponse:
         desk.status = "working"
         desk.current_task = body.task
         desk.output = []
+        desk.answered_by = None
+        desk.model = None
         asyncio.create_task(work_desk(desk_id, body.task))
 
     assistant.state = "dispatching"
@@ -160,3 +168,36 @@ async def post_assistant_clear() -> StatusResponse:
     assistant.state = "idle"
     assistant.route = []
     return snapshot()
+
+
+class MeetingMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class MeetingRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=16000)
+    history: list[MeetingMessage] = Field(default_factory=list, max_length=12)
+
+
+class MeetingResponse(BaseModel):
+    desk: str
+    response: str
+    provider: str
+    model: str | None
+
+
+@app.post("/agents/{agent_id}/message", response_model=MeetingResponse)
+async def post_agent_message(agent_id: str, body: MeetingRequest) -> MeetingResponse:
+    if agent_id not in desks:
+        raise HTTPException(status_code=404, detail="Unknown agent")
+    if not body.message.strip():
+        raise HTTPException(status_code=422, detail="Message cannot be blank")
+    result = {}
+    try:
+        async for _ in run_agent(agent_id, desks[agent_id].provider, body.message,
+                                 context=[m.model_dump() for m in body.history], result=result):
+            pass
+        return MeetingResponse(desk=agent_id, **result)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Unable to respond. Please retry.") from None
