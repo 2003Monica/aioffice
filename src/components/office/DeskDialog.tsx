@@ -3,6 +3,10 @@ import { PROVIDERS, type Desk, type DeskStatus } from "@/lib/office-api";
 const STATE_COLOR: Record<DeskStatus, string> = {
   idle: "var(--state-idle)",
   working: "var(--state-working)",
+  waiting: "var(--muted-foreground)",
+  reviewing: "var(--desk-security)",
+  revising: "var(--desk-research)",
+  synthesizing: "var(--primary)",
   done: "var(--state-done)",
 };
 
@@ -38,7 +42,7 @@ export function DeskDialog({ desk, color, onClose, onProviderChange }: Props) {
 
         <div className="mb-3 flex items-center gap-2 text-[9px] text-muted-foreground">
           <span className="h-[10px] w-[10px]" style={{ background: STATE_COLOR[desk.status] }} />
-          <span>STATUS: {desk.status.toUpperCase()}</span>
+          <span>STATUS: {(desk.activity ?? desk.status).toUpperCase()}</span>
         </div>
 
         <p className="mb-4 text-[9px] leading-relaxed text-foreground">

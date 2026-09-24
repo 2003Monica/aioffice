@@ -1,0 +1,100 @@
+{
+  "order": ["research", "sql", "backend", "frontend", "security", "debugger"],
+  "keywords": {
+    "research": [
+      "research",
+      "compare",
+      "evaluate",
+      "investigate",
+      "explore",
+      "approaches",
+      "best practice",
+      "what approach"
+    ],
+    "sql": [
+      "sql",
+      "postgresql",
+      "postgres",
+      "database",
+      "databases",
+      "schema",
+      "query",
+      "queries",
+      "migration",
+      "indexes",
+      "embeddings",
+      "persistence"
+    ],
+    "backend": [
+      "backend",
+      "fastapi",
+      "python",
+      "api",
+      "apis",
+      "endpoint",
+      "endpoints",
+      "server",
+      "authentication",
+      "auth",
+      "login",
+      "session"
+    ],
+    "frontend": [
+      "frontend",
+      "react",
+      "typescript",
+      "ui",
+      "css",
+      "component",
+      "components",
+      "dashboard",
+      "responsive",
+      "tailwind",
+      "layout",
+      "navbar",
+      "button",
+      "accessibility"
+    ],
+    "security": [
+      "security",
+      "secure",
+      "securely",
+      "secrets",
+      "authentication",
+      "authorization",
+      "auth",
+      "login",
+      "vulnerability",
+      "encrypt",
+      "permissions",
+      "password",
+      "api keys"
+    ],
+    "debugger": [
+      "debug",
+      "debugger",
+      "bug",
+      "error",
+      "exception",
+      "stack trace",
+      "traceback",
+      "crash",
+      "troubleshoot",
+      "root cause",
+      "undefined",
+      "integration"
+    ]
+  },
+  "assignments": {
+    "research": "Compare relevant approaches, recommend a direction, and state evidence, assumptions and uncertainty. Label this model-based research, without live browsing.",
+    "sql": "Design only the database contribution: schema, constraints, indexes, persistence and suggested SQL. Explain the data contract other specialists should use; SQL is not executed.",
+    "backend": "Design only backend services, API request/response contracts, validation and async/error handling, using prerequisite data and research decisions.",
+    "frontend": "Design only the user interface, accessible components, client state and error/loading behavior. Use the supplied API contract exactly; do not redesign backend or database work.",
+    "security": "Analyze concrete security risks, authentication, authorization, secrets and API exposure; give actionable corrections without claiming scans.",
+    "debugger": "Identify root causes and likely implementation errors; suggest minimal fixes and checks without claiming execution."
+  },
+  "reviews": {
+    "security": "Review the supplied specialist work for concrete security risks. Identify affected contracts and actionable corrections; do not rewrite the entire solution or claim a security scan.",
+    "debugger": "Check integration across the supplied work: exact endpoint and field names, schema assumptions, missing steps and likely runtime errors. Identify contradictions and minimal corrections; no code has been executed."
+  }
+}

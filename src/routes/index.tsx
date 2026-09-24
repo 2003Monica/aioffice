@@ -19,7 +19,7 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Dispatch orders to six specialist AI agents in a pixel-art isometric office. Live streaming output, keyword task routing, and desk-by-desk status.",
+          "Dispatch orders to six specialist AI agents in a pixel-art isometric office. Specialist handoffs, bounded reviews, and coordinated final reports.",
       },
       { property: "og:title", content: "AI Office — Isometric Multi-Agent Dashboard" },
       {
@@ -40,6 +40,8 @@ function OfficePage() {
     chat,
     terminal,
     dispatch,
+    dispatchError,
+    officeBusy,
     talkPrivately,
     meetingAgent,
     endMeeting,
@@ -90,7 +92,13 @@ function OfficePage() {
       </div>
 
       <div className="w-full shrink-0 lg:h-full lg:w-[340px]">
-        <ChatPanel chat={chat} onDispatch={(text) => void dispatch(text)} isMock={isMock} />
+        <ChatPanel
+          chat={chat}
+          onDispatch={(text) => void dispatch(text)}
+          isMock={isMock}
+          busy={officeBusy}
+          error={dispatchError}
+        />
       </div>
 
       {meetingAgent && (

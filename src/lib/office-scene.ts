@@ -1,3 +1,4 @@
+import type { OfficeTask } from "./office-collaboration";
 /**
  * Purely cosmetic isometric-scene layout: tile-world positions, screen/glyph
  * per desk, coffee-room banter lines. None of this drives task routing or
@@ -31,6 +32,8 @@ export type AgentVisual = {
   caffeine: number;
   provider: string;
   busy: boolean;
+  activity?: string | null;
+  assignment?: string | null;
 };
 
 /** World is measured in tiles; 1 tile = TILE px in the isometric scene. */
@@ -142,6 +145,7 @@ export type ChatEntry = {
   order: string;
   deskIds: DeskId[];
   resolved: boolean;
+  workspace?: OfficeTask;
   ts: number;
 };
 

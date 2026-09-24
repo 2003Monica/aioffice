@@ -1,5 +1,9 @@
 # AI Office backend
 
+Normal orders now use bounded multi-agent collaboration. See
+[COLLABORATION.md](COLLABORATION.md) for planning, handoffs, reviews, final reports
+and the current testing guide. Private meetings remain direct conversations.
+
 Requires Python 3.11+ and a local Ollama installation. Backend uses NVIDIA,
 Research/Debugger use Groq, and Frontend/Security/SQL use Ollama. Every hosted desk falls back to Ollama before simulation. Agents produce
 text only: no commands, file edits, scans or SQL execution.
@@ -41,12 +45,12 @@ text only: no commands, file edits, scans or SQL execution.
    ```
 
    Open the URL Vite prints. The terminal should say `remote backend (live)`.
-   Without `VITE_OFFICE_API_URL`, the frontend intentionally uses its unchanged
-   demo simulation. Restart Vite after changing this variable.
+   Without `VITE_OFFICE_API_URL`, the frontend intentionally uses its local
+   collaboration demo. Restart Vite after changing this variable.
 
 ## How requests work
 
-The existing keyword router selects desks and starts background tasks. Each
+The collaboration planner assigns specialist subtasks and starts a background workflow. Each
 local desk calls the shared `generate_ollama` helper using `httpx.AsyncClient`:
 
 ```json
@@ -138,7 +142,7 @@ may finish, but cannot reopen the UI or change normal task state.
 Meeting states: walking/invited ? active ? thinking ? response received ? ended.
 Send is disabled until arrival and while thinking. Ending sends the walker back
 to its desk; if a normal task is running, its working state resumes. Polling stays
-at 1.5 seconds, and normal keyword routing still selects at most three desks.
+at 1.5 seconds. Normal tasks now use a relevant subset of up to six collaborating desks.
 
 Hosted calls use the asynchronous OpenAI-compatible client, preserve NVIDIA/Groq
 models and reasoning settings, stream text to normal output, and have a 90-second
@@ -174,7 +178,7 @@ No new dependency is required beyond the existing requirements (`httpx` and
    the conversation is empty. Also close while thinking and reopen a different
    agent; the old response must not appear.
 5. Send `api research frontend debug security sql` in the main order input.
-   Backend, Research and Frontend should dispatch (three-desk cap), with normal
+   The coordinator should assign the relevant desks in dependency order, with normal
    progress, terminal output and task completion. Coffee, banter and minimap
    should continue outside the meeting.
 6. To force hosted failure safely, launch a fresh backend terminal with

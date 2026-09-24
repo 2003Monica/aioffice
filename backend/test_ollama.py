@@ -113,10 +113,9 @@ class OllamaTests(unittest.IsolatedAsyncioTestCase):
 
         with self.mock_http(respond), patch.object(agents.asyncio, "sleep", new=AsyncMock()), self.assertLogs("uvicorn.error", level="WARNING"):
             initial = await main.post_task(main.TaskRequest(task="frontend security sql"))
-            self.assertEqual(initial.assistant.route, ["frontend", "security", "sql"])
+            self.assertEqual(initial.assistant.route, ["sql", "frontend", "security", "debugger"])
             self.assertEqual(initial.assistant.state, "dispatching")
-            pending = [task for task in asyncio.all_tasks() if task.get_coro().__name__ == "work_desk"]
-            await asyncio.gather(*pending)
+            await main.coordinator.worker
         result = await main.get_status()
         self.assertEqual(result.assistant.state, "returning")
         for desk in result.desks:
@@ -158,7 +157,7 @@ class OllamaTests(unittest.IsolatedAsyncioTestCase):
     async def test_meetings_direct_routing_context_and_validation(self):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test") as client:
             before = main.snapshot().model_dump()
-            with patch.object(agents, "generate_ollama", new=AsyncMock(return_value="meeting answer")), patch.dict(os.environ, {"NVIDIA_API_KEY": "", "GROQ_API_KEY": ""}), patch.object(main, "pick_desks", side_effect=AssertionError("router must not run")):
+            with patch.object(agents, "generate_ollama", new=AsyncMock(return_value="meeting answer")), patch.dict(os.environ, {"NVIDIA_API_KEY": "", "GROQ_API_KEY": ""}), patch.object(main.coordinator, "start", side_effect=AssertionError("router must not run")):
                 for desk in agents.SYSTEM_PROMPTS:
                     response = await client.post(f"/agents/{desk}/message", json={"message": "api research frontend bug security sql", "history": [{"role": "user", "content": "prior"}]})
                     self.assertEqual(response.status_code, 200)
@@ -196,7 +195,7 @@ class OllamaTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("SECRET", "".join(output))
 
     def test_router_and_context_bounds(self):
-        self.assertEqual(main.pick_desks("api research frontend debug security sql"), ["backend", "research", "frontend"])
+        self.assertEqual(main.pick_desks("api research frontend debug security sql"), ["research", "sql", "backend", "frontend", "security", "debugger"])
         prompt = agents.build_prompt("original", [{"role": "user", "content": str(i) + "x" * 5000} for i in range(20)])
         self.assertLess(len(prompt), 49000)
         self.assertTrue(prompt.endswith("original"))

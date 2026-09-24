@@ -1,3 +1,4 @@
+import { deskReserved, taskFinished } from "@/lib/office-collaboration";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DESK_META, officeApi, type DeskStatus, type StatusResponse } from "@/lib/office-api";
 import {
@@ -102,6 +103,10 @@ export function useOfficeScene() {
     nextWander: Infinity,
   });
 
+  const [dispatchError, setDispatchError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submitPending = useRef(false);
+  const outputTaskIds = useRef<Record<string, string | null | undefined>>({});
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [agents, setAgents] = useState<AgentVisual[]>([]);
   const [assistantVisual, setAssistantVisual] = useState<{ pos: Vec; status: AgentVisualStatus }>({
@@ -149,6 +154,11 @@ export function useOfficeScene() {
       if (!w) continue;
 
       // stream new output lines into the terminal (append-only diff)
+      if (outputTaskIds.current[id] !== desk.task_id) {
+        seenOutputLen.current[id] = 0;
+        outputTaskIds.current[id] = desk.task_id;
+        delete prevDeskStatus.current[id];
+      }
       const seen = seenOutputLen.current[id] ?? 0;
       if (desk.output.length > seen) {
         for (const line of desk.output.slice(seen)) pushTerminal(id, line);
@@ -156,7 +166,7 @@ export function useOfficeScene() {
       }
 
       if (meetingRef.current === id) {
-        if (desk.status === "working") busyDesks.current.add(id);
+        if (deskReserved(desk.status)) busyDesks.current.add(id);
         else busyDesks.current.delete(id);
         prevDeskStatus.current[id] = desk.status;
         continue;
@@ -164,16 +174,16 @@ export function useOfficeScene() {
 
       const prev = prevDeskStatus.current[id];
       if (prev !== desk.status) {
-        if (desk.status === "working") {
+        if (deskReserved(desk.status)) {
           // interrupt: a real dispatched task always wins over idle wandering
           busyDesks.current.add(id);
           w.banter = null;
           setScript(w, [
             { t: "state", status: "walking", banter: null },
             ...pathTo(w.pos, DESK_VISUALS[id].seat),
-            { t: "state", status: "working" },
+            { t: "state", status: desk.status === "waiting" ? "idle" : "working" },
           ]);
-        } else if (desk.status === "done" && prev === "working") {
+        } else if (desk.status === "done" && prev && deskReserved(prev)) {
           busyDesks.current.delete(id);
           setScript(w, [
             { t: "state", status: "done" },
@@ -188,14 +198,16 @@ export function useOfficeScene() {
       }
     }
 
-    // chat resolution: mark orders resolved once every desk in their route is done
-    setChat((prevChat) =>
-      prevChat.map((c) =>
-        !c.resolved &&
-        c.deskIds.every((id) => next.desks.find((d) => d.id === id)?.status === "done")
-          ? { ...c, resolved: true }
-          : c,
-      ),
+    // One history item per workspace, keyed by task ID (never by reusable desk status).
+    setChat(
+      next.tasks.map((task) => ({
+        id: task.id,
+        order: task.original_task,
+        deskIds: task.plan.map((a) => a.agent as DeskId),
+        resolved: taskFinished(task),
+        ts: task.created_at * 1000,
+        workspace: task,
+      })),
     );
 
     // assistant courier animation follows the same state transitions the old UI used
@@ -326,6 +338,8 @@ export function useOfficeScene() {
             caffeine: w.caffeine,
             provider: desk?.provider ?? "Provider A",
             busy: busyDesks.current.has(id),
+            activity: desk?.activity ?? null,
+            assignment: desk?.current_task ?? null,
           };
         }),
       );
@@ -342,23 +356,38 @@ export function useOfficeScene() {
   const dispatch = useCallback(
     async (task: string) => {
       const text = task.trim();
-      if (!text) return;
+      if (!text || submitPending.current) return;
+      submitPending.current = true;
+      setSubmitting(true);
+      setDispatchError("");
       pushTerminal("system", `> new order: "${text}"`);
       lastAssistantState.current = "idle"; // force the dispatching transition to fire even if a route repeats
       try {
         const next = await officeApi.submitTask(text);
         setStatus(next);
         const deskIds = next.assistant.route as DeskId[];
-        setChat((prev) => [
-          ...prev,
-          { id: uid(), order: text, deskIds, resolved: false, ts: Date.now() },
-        ]);
+        setChat(
+          next.tasks.map((task) => ({
+            id: task.id,
+            order: task.original_task,
+            deskIds: task.plan.map((a) => a.agent as DeskId),
+            resolved: taskFinished(task),
+            ts: task.created_at * 1000,
+            workspace: task,
+          })),
+        );
         pushTerminal(
           "system",
           `> dispatch → ${deskIds.map((id) => DESK_META.find((m) => m.id === id)?.name ?? id).join(", ")}`,
         );
-      } catch {
-        pushTerminal("system", "ERROR: backend unreachable.");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Backend unreachable. Please try again.";
+        setDispatchError(message);
+        pushTerminal("system", message);
+      } finally {
+        submitPending.current = false;
+        setSubmitting(false);
       }
     },
     [pushTerminal],
@@ -406,6 +435,8 @@ export function useOfficeScene() {
     chat,
     terminal,
     dispatch,
+    dispatchError,
+    officeBusy: submitting || !!status?.tasks.some((task) => !taskFinished(task)),
     talkPrivately,
     meetingAgent,
     endMeeting,

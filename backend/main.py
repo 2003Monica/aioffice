@@ -7,13 +7,11 @@ Implements the contract defined by the frontend at src/lib/office-api.ts:
     GET  /status                                       -> StatusResponse
     POST /desk/{desk_id}/provider  { provider }        -> StatusResponse
 
-State lives in memory (single-process dev server). Each dispatched desk runs
-its agent in a background asyncio task so /task returns immediately while
-work streams into desk.output over time.
+State lives in memory (single-process dev server). Each office order runs
+a dependency-aware coordinator in a background asyncio task so /task returns
+immediately while assignments, handoffs and final reports appear in /status.
 """
 
-import asyncio
-import re
 from pathlib import Path
 from typing import Literal
 
@@ -26,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from agents import run_agent
+from orchestrator import OfficeCoordinator, TaskWorkspace, create_workspace
 
 app = FastAPI(title="AI Office backend")
 
@@ -51,12 +50,14 @@ DESK_META = [
 class Desk(BaseModel):
     id: str
     name: str
-    status: str  # "idle" | "working" | "done"
+    status: str  # idle, waiting, working, reviewing, revising, synthesizing, done
     current_task: str | None
     output: list[str]
     provider: str
     answered_by: str | None = None
     model: str | None = None
+    task_id: str | None = None
+    activity: str | None = None
 
 
 class Assistant(BaseModel):
@@ -67,10 +68,11 @@ class Assistant(BaseModel):
 class StatusResponse(BaseModel):
     desks: list[Desk]
     assistant: Assistant
+    tasks: list[TaskWorkspace] = Field(default_factory=list)
 
 
 class TaskRequest(BaseModel):
-    task: str
+    task: str = Field(min_length=1, max_length=16000)
 
 
 class ProviderRequest(BaseModel):
@@ -90,46 +92,16 @@ desks: dict[str, Desk] = {
 }
 
 assistant = Assistant(state="idle", route=[])
+coordinator = OfficeCoordinator(desks, assistant)
 
 
 def snapshot() -> StatusResponse:
-    return StatusResponse(desks=list(desks.values()), assistant=assistant)
-
-
-def _keyword_matches(text: str, keyword: str) -> bool:
-    """
-    Whole-word(ish) match: \\b anchors on both ends so a short keyword like
-    "ui" or "orm" can't fire on a fragment buried inside an unrelated word
-    (e.g. "orm" inside "performance", "api" inside "rapid", "ui" inside
-    "build"/"guide"). Multi-word keywords like "best practice" or "ci/cd"
-    work too since \\b only needs to anchor on their outer, alphanumeric
-    edges.
-    """
-    return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+    return StatusResponse(desks=list(desks.values()), assistant=assistant, tasks=coordinator.tasks).model_copy(deep=True)
 
 
 def pick_desks(task: str) -> list[str]:
-    t = task.lower()
-    matched = [meta["id"] for meta in DESK_META if any(_keyword_matches(t, k) for k in meta["keywords"])]
-    if matched:
-        return matched[:3]
-    # fall back to two pseudo-random desks so every order dispatches someone
-    ids = [meta["id"] for meta in DESK_META]
-    start = len(task) % len(ids)
-    return [ids[start], ids[(start + 2) % len(ids)]]
-
-
-async def work_desk(desk_id: str, task: str) -> None:
-    desk = desks[desk_id]
-    result = {}
-    async for line in run_agent(desk_id, desk.provider, task, result=result):
-        desk.output.append(line)
-    desk.answered_by = result.get("provider")
-    desk.model = result.get("model")
-    desk.status = "done"
-
-    if assistant.state == "dispatching" and all(desks[d].status == "done" for d in assistant.route):
-        assistant.state = "returning"
+    """Compatibility helper: desk selection now belongs to the collaboration planner."""
+    return [assignment.agent for assignment in create_workspace(task).plan]
 
 
 @app.get("/status", response_model=StatusResponse)
@@ -139,18 +111,12 @@ async def get_status() -> StatusResponse:
 
 @app.post("/task", response_model=StatusResponse)
 async def post_task(body: TaskRequest) -> StatusResponse:
-    targets = pick_desks(body.task)
-    for desk_id in targets:
-        desk = desks[desk_id]
-        desk.status = "working"
-        desk.current_task = body.task
-        desk.output = []
-        desk.answered_by = None
-        desk.model = None
-        asyncio.create_task(work_desk(desk_id, body.task))
-
-    assistant.state = "dispatching"
-    assistant.route = targets
+    if not body.task.strip():
+        raise HTTPException(status_code=422, detail="Task cannot be blank")
+    try:
+        coordinator.start(body.task.strip())
+    except ValueError:
+        raise HTTPException(status_code=409, detail="An office task is already running. Wait for its final report.") from None
     return snapshot()
 
 
@@ -165,6 +131,8 @@ async def post_provider(desk_id: str, body: ProviderRequest) -> StatusResponse:
 
 @app.post("/assistant/clear", response_model=StatusResponse)
 async def post_assistant_clear() -> StatusResponse:
+    if coordinator.busy:
+        return snapshot()
     assistant.state = "idle"
     assistant.route = []
     return snapshot()

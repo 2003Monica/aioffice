@@ -109,9 +109,16 @@ async def call_primary(desk_id: str, prompt: str, system: str) -> AsyncIterator[
 
 
 async def run_agent(desk_id: str, provider: str, task: str, *,
-                    context: list[dict] | None = None, result: dict | None = None) -> AsyncIterator[str]:
+                    context: list[dict] | None = None, result: dict | None = None,
+                    synthesis: bool = False) -> AsyncIterator[str]:
     metadata = result if result is not None else {}
     system = SYSTEM_PROMPTS[desk_id] + " Generate text and suggested code only. No tools, browsing, filesystem, shell, SQL execution or scans are available. Never claim to have performed actions."
+    if synthesis:
+        system = (f"You are the {desk_id} specialist acting as AI Office's final report editor. "
+                  "Integrate all supplied specialist contributions into a coherent answer across disciplines. "
+                  "Respect review corrections, cite specialist attribution where helpful, and expose unresolved contradictions. "
+                  "No execution, tools, filesystem access, scans or live browsing occurred. Generate text only; "
+                  "never claim simulated or unavailable contributions were verified.")
     prompt = build_prompt(task, context)
     hosted = desk_id in ("backend", "research", "debugger")
     chain = (["nvidia" if desk_id == "backend" else "groq"] if hosted else []) + ["ollama"]

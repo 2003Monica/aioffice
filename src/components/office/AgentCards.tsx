@@ -66,10 +66,14 @@ export function AgentCards({
                     {meta.name}
                   </span>
                   <span
-                    className="pixel-font shrink-0 rounded-sm px-1 py-[2px] text-[5px]"
+                    className="pixel-font max-w-[95px] rounded-sm px-1 py-[2px] text-[5px] leading-relaxed"
                     style={{ background: "var(--muted)", color: badge.color }}
                   >
-                    {meeting ? "MEETING" : badge.label}
+                    {meeting
+                      ? "MEETING"
+                      : a.busy && a.activity
+                        ? a.activity.toUpperCase()
+                        : badge.label}
                   </span>
                 </div>
                 <div className="truncate text-[15px] text-muted-foreground">
@@ -78,6 +82,14 @@ export function AgentCards({
               </div>
             </div>
 
+            {a.assignment && (
+              <p
+                className="mt-2 line-clamp-2 text-[13px] leading-tight text-muted-foreground"
+                title={a.assignment}
+              >
+                {a.assignment}
+              </p>
+            )}
             <div className="mt-2">
               <div className="flex items-center justify-between text-[13px] text-muted-foreground">
                 <span>CAFFEINE</span>

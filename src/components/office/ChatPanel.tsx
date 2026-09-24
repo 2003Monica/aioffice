@@ -1,22 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import { DESK_META } from "@/lib/office-api";
+import { CollaborationPanel } from "./CollaborationPanel";
 import { ORDER_SUGGESTIONS, type ChatEntry } from "@/lib/office-scene";
 
 export function ChatPanel({
   chat,
   onDispatch,
   isMock,
+  busy,
+  error,
 }: {
   chat: ChatEntry[];
   onDispatch: (text: string) => void;
   isMock: boolean;
+  busy: boolean;
+  error: string;
 }) {
   const [value, setValue] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const followLatest = useRef(true);
 
   useEffect(() => {
-    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+    if (followLatest.current) {
+      scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "instant" });
+    }
   }, [chat]);
   useEffect(() => {
     input.current?.focus();
@@ -24,7 +32,7 @@ export function ChatPanel({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!value.trim()) return;
+    if (!value.trim() || busy) return;
     onDispatch(value);
     setValue("");
     input.current?.focus();
@@ -47,6 +55,10 @@ export function ChatPanel({
 
       <div
         ref={scroller}
+        onScroll={(event) => {
+          const panel = event.currentTarget;
+          followLatest.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 64;
+        }}
         className="scroll-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3"
       >
         {chat.length === 0 && (
@@ -58,6 +70,7 @@ export function ChatPanel({
               {ORDER_SUGGESTIONS.map((s) => (
                 <button
                   key={s}
+                  disabled={busy}
                   onClick={() => onDispatch(s)}
                   className="block w-full rounded-sm border border-border px-2 py-2 text-left text-[16px] leading-snug transition-colors hover:border-primary hover:text-primary"
                 >
@@ -87,24 +100,37 @@ export function ChatPanel({
                 );
               })}
               <span style={{ color: c.resolved ? "var(--state-done)" : "var(--primary)" }}>
-                — {c.resolved ? "done" : "working…"}
+                — {c.workspace?.status.replaceAll("_", " ") ?? (c.resolved ? "done" : "working…")}
               </span>
             </div>
+            {c.workspace && <CollaborationPanel task={c.workspace} />}
           </div>
         ))}
       </div>
 
       <form onSubmit={submit} className="border-t border-border p-3">
+        {error && (
+          <p role="alert" className="mb-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        {busy && (
+          <p className="mb-2 text-xs text-muted-foreground">
+            The office is collaborating. The next order can start after the final report.
+          </p>
+        )}
         <div className="flex gap-2">
           <input
             ref={input}
             value={value}
+            maxLength={16000}
             onChange={(e) => setValue(e.target.value)}
             placeholder="Head's Orders..."
             className="min-w-0 flex-1 rounded-sm border-2 border-border bg-input px-2 py-2 text-[18px] outline-none placeholder:text-muted-foreground focus:border-primary"
           />
           <button
             type="submit"
+            disabled={busy || !value.trim()}
             className="pixel-font rounded-sm px-3 text-[7px] transition-transform active:translate-y-[2px]"
             style={{
               background: "var(--primary)",

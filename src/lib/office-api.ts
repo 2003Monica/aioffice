@@ -11,7 +11,15 @@
  *   POST /assistant/clear                              -> StatusResponse
  */
 
-export type DeskStatus = "idle" | "working" | "done";
+import {
+  createDemoTask,
+  taskFinished,
+  type OfficeTask,
+  type Assignment,
+  type WorkflowPhase,
+} from "./office-collaboration";
+
+export type DeskStatus = "idle" | Exclude<WorkflowPhase, "skipped">;
 export type AssistantState = "idle" | "dispatching" | "returning";
 
 export interface Desk {
@@ -23,6 +31,8 @@ export interface Desk {
   provider: string;
   answered_by?: string | null;
   model?: string | null;
+  task_id?: string | null;
+  activity?: string | null;
 }
 
 export interface MeetingMessage {
@@ -46,6 +56,7 @@ export interface Assistant {
 export interface StatusResponse {
   desks: Desk[];
   assistant: Assistant;
+  tasks: OfficeTask[];
 }
 
 export const PROVIDERS = ["Provider A", "Provider B", "Provider C"] as const;
@@ -154,102 +165,190 @@ const BASE_URL = import.meta.env["VITE_OFFICE_API_URL"] as string | undefined;
 
 /* ------------------------------- mock store ------------------------------ */
 
-interface MockDesk extends Desk {
-  finishAt: number;
-  lines: string[];
-}
-
-const mockDesks: MockDesk[] = DESK_META.map((d) => ({
+const mockDesks: Desk[] = DESK_META.map((d) => ({
   id: d.id,
   name: d.name,
   status: "idle",
   current_task: null,
   output: [],
-  provider: PROVIDERS[0] as string,
-  finishAt: 0,
-  lines: [],
+  provider: PROVIDERS[0],
 }));
-
 let mockAssistant: Assistant = { state: "idle", route: [] };
+let mockTasks: OfficeTask[] = [];
+let mockStep: {
+  assignment: Assignment;
+  phase: "working" | "reviewing" | "revising" | "synthesizing";
+  finishAt: number;
+} | null = null;
+const mockRevisions = new Set<string>();
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Whole-word(ish) keyword match: `\b` anchors on both ends so a short
- * keyword like "ui" or "orm" can't fire on a fragment buried inside an
- * unrelated word (e.g. "orm" inside "performance", "api" inside "rapid",
- * "ui" inside "build"/"guide"). Multi-word keywords like "best practice"
- * or "ci/cd" work too since `\b` only needs to anchor on their outer,
- * alphanumeric edges.
- */
-function keywordMatches(text: string, keyword: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(keyword)}\\b`).test(text);
-}
-
-function pickDesks(task: string): MockDesk[] {
-  const t = task.toLowerCase();
-  const matched = mockDesks.filter((d) => {
-    const meta = DESK_META.find((m) => m.id === d.id)!;
-    return meta.keywords.some((k) => keywordMatches(t, k));
+function mockEvent(
+  task: OfficeTask,
+  sender: string,
+  kind: string,
+  text: string,
+  recipient: string | null = null,
+) {
+  task.messages.push({
+    id: task.messages.length + 1,
+    ts: Date.now() / 1000,
+    sender,
+    kind,
+    text,
+    recipient,
   });
-  if (matched.length) return matched.slice(0, 3);
-  // fall back to two pseudo-random desks so every order dispatches someone
-  const start = task.length % mockDesks.length;
-  return [mockDesks[start]!, mockDesks[(start + 2) % mockDesks.length]!];
+}
+
+function startMockStep(
+  task: OfficeTask,
+  assignment: Assignment,
+  phase: NonNullable<typeof mockStep>["phase"],
+) {
+  const desk = mockDesks.find((d) => d.id === assignment.agent)!;
+  assignment.state = phase;
+  desk.status = phase;
+  desk.activity =
+    phase === "reviewing"
+      ? assignment.agent === "debugger"
+        ? "Checking integration"
+        : "Reviewing"
+      : phase === "revising"
+        ? "Applying review corrections"
+        : phase === "synthesizing"
+          ? "Combining office report"
+          : "Working";
+  desk.output.push(`> ${desk.activity}: ${assignment.subtask}`);
+  mockEvent(task, assignment.agent, phase, desk.activity);
+  if (phase === "working" || phase === "reviewing") {
+    for (const id of assignment.depends_on)
+      mockEvent(
+        task,
+        id,
+        "handoff",
+        task.agent_results[id]!.response.slice(0, 600),
+        assignment.agent,
+      );
+  }
+  mockStep = { assignment, phase, finishAt: Date.now() + 2400 };
+}
+
+function finishMock(task: OfficeTask) {
+  task.status = "partial";
+  task.finished_at = Date.now() / 1000;
+  task.synthesis_provider = "simulated";
+  const handoffs = task.plan
+    .filter((a) => a.depends_on.length)
+    .map((a) => `${a.depends_on.join(" + ")} -> ${a.agent}`)
+    .join("; ");
+  task.final_report = `FINAL OFFICE REPORT - DEMO\n\n${task.original_task}\n\nCoordinated plan: ${task.plan.map((a) => a.agent.toUpperCase()).join(" -> ")}.\n${handoffs ? `Handoffs: ${handoffs}. Incorporate the review corrections before implementation.` : "This request needs only the selected specialist's contribution."}\n\n${task.plan.map((a) => `${a.agent.toUpperCase()}: ${task.agent_results[a.agent]!.response}`).join("\n\n")}\n\nThis illustrates the workflow; no model ran and no implementation was executed.`;
+  mockEvent(task, "coordinator", "finished", "Demo office report ready.");
+  mockAssistant.state = "returning";
 }
 
 function tickMock() {
-  const now = Date.now();
-  for (const d of mockDesks) {
-    if (d.status !== "working") continue;
-    const total = d.lines.length;
-    const revealed = Math.min(
-      total,
-      Math.max(1, Math.ceil(total * (1 - (d.finishAt - now) / 9000))),
-    );
-    d.output = d.lines.slice(0, revealed);
-    if (now >= d.finishAt) {
-      d.status = "done";
-      d.output = [...d.lines, "> task complete."];
+  const task = mockTasks.at(-1);
+  if (!task || taskFinished(task)) return;
+  if (mockStep) {
+    if (Date.now() < mockStep.finishAt) return;
+    const { assignment, phase } = mockStep;
+    const desk = mockDesks.find((d) => d.id === assignment.agent)!;
+    const dependencyNames = assignment.depends_on.join(", ");
+    const response =
+      phase === "revising"
+        ? `[Demo revision] Updated ${assignment.agent} contribution after review; align the shared API contract and secure token handling.`
+        : `[Demo ${assignment.kind}] ${assignment.subtask}${dependencyNames ? ` Using handoffs from ${dependencyNames}.` : ""}`;
+    desk.output.push(response);
+    desk.answered_by = "simulated";
+    desk.model = null;
+    desk.status = "done";
+    desk.activity = "Contribution ready";
+    assignment.state = "done";
+    mockEvent(task, assignment.agent, "completed", `${phase} finished (demo).`);
+    mockStep = null;
+    if (phase === "synthesizing") {
+      finishMock(task);
+      return;
+    }
+    task.agent_results[assignment.agent] = { response, provider: "simulated", model: null, phase };
+    if (phase !== "revising")
+      task.initial_results[assignment.agent] = { ...task.agent_results[assignment.agent]! };
+    // Bounded illustrative review requests; these are explicitly labelled demo findings.
+    if (phase === "reviewing") {
+      const target = assignment.agent === "security" ? "backend" : "frontend";
+      if (
+        assignment.depends_on.includes(target) &&
+        task.plan.some((a) => a.agent === target && a.kind === "specialist")
+      ) {
+        mockRevisions.add(target);
+        mockEvent(
+          task,
+          assignment.agent,
+          "revision_request",
+          target === "backend"
+            ? "Demo correction: specify secure cookie token handling."
+            : "Demo correction: align frontend field names with the backend contract.",
+          target,
+        );
+      }
     }
   }
-  if (mockAssistant.state !== "idle") {
-    const dispatched = mockAssistant.route;
-    const allDone = dispatched.every((id) => mockDesks.find((d) => d.id === id)?.status === "done");
-    if (allDone) mockAssistant = { state: "returning", route: dispatched };
+  const next = task.plan.find(
+    (a) => a.state === "waiting" && a.depends_on.every((id) => task.agent_results[id]),
+  );
+  if (next) {
+    task.status = "working";
+    startMockStep(task, next, next.kind === "review" ? "reviewing" : "working");
+    return;
   }
+  const revision = task.plan.find((a) => mockRevisions.has(a.agent) && a.revisions === 0);
+  if (revision) {
+    revision.revisions = 1;
+    startMockStep(task, revision, "revising");
+    return;
+  }
+  if (task.plan.length === 1) {
+    finishMock(task);
+    return;
+  }
+  task.status = "synthesizing";
+  startMockStep(
+    task,
+    task.plan.find((a) => a.agent === task.final_owner)!,
+    "synthesizing",
+  );
 }
 
 function mockSnapshot(): StatusResponse {
   tickMock();
-  return {
-    desks: mockDesks.map(({ finishAt: _f, lines: _l, ...rest }) => ({
-      ...rest,
-      output: [...rest.output],
-    })),
-    assistant: { ...mockAssistant, route: [...mockAssistant.route] },
-  };
+  return structuredClone({ desks: mockDesks, assistant: mockAssistant, tasks: mockTasks });
 }
 
 function mockSubmit(task: string): StatusResponse {
-  const targets = pickDesks(task);
-  for (const d of targets) {
-    d.status = "working";
-    d.current_task = task;
-    d.finishAt = Date.now() + 6000 + Math.random() * 3000;
-    d.lines = [
-      `> booting ${d.name.toLowerCase()} agent [${d.provider}]`,
-      `> parsing order: "${task.slice(0, 48)}"`,
-      "> drafting plan ...",
-      "> executing step 1/3",
-      "> executing step 2/3",
-      "> executing step 3/3",
-    ];
-    d.output = [d.lines[0]!];
+  if (mockTasks.some((task) => !taskFinished(task)))
+    throw new Error("An office task is already running. Wait for its final report.");
+  const workspace = createDemoTask(task);
+  mockTasks = [...mockTasks, workspace].slice(-20);
+  mockRevisions.clear();
+  mockStep = null;
+  mockEvent(
+    workspace,
+    "coordinator",
+    "plan",
+    `Assigned ${workspace.plan.length} specialists; final owner: ${workspace.final_owner}.`,
+  );
+  for (const assignment of workspace.plan) {
+    const desk = mockDesks.find((d) => d.id === assignment.agent)!;
+    Object.assign(desk, {
+      status: "waiting",
+      current_task: assignment.subtask,
+      task_id: workspace.id,
+      activity: `Waiting for ${assignment.depends_on.join(", ") || "coordinator"}`,
+      output: [],
+      answered_by: null,
+      model: null,
+    });
   }
-  mockAssistant = { state: "dispatching", route: targets.map((d) => d.id) };
+  mockAssistant = { state: "dispatching", route: workspace.plan.map((a) => a.agent) };
   return mockSnapshot();
 }
 
@@ -260,7 +359,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+  if (!res.ok)
+    throw new Error(
+      res.status === 409
+        ? "An office task is already running. Wait for its final report."
+        : "Backend request failed. Please try again.",
+    );
   return (await res.json()) as T;
 }
 
@@ -316,6 +420,7 @@ export const officeApi = {
   /** Called by the UI once the assistant has finished its walk-back animation. */
   async clearAssistant(): Promise<StatusResponse> {
     if (!BASE_URL) {
+      if (mockTasks.some((task) => !taskFinished(task))) return mockSnapshot();
       mockAssistant = { state: "idle", route: [] };
       return mockSnapshot();
     }
